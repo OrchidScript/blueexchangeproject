@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "652343286066",
+    "project_id": "blueexchangeproject",
+    "storage_bucket": "blueexchangeproject.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:652343286066:android:08bbf36b05e140efab1f2b",
+        "android_client_info": {
+          "package_name": "com.example.blueexchangeproject"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDK4oPseDH6yM7gXyTfDDsW20tenIeDalM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
