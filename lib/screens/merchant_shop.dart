@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class MerchantShop extends StatefulWidget {
-  final String userId; // ID ของร้านค้า (Merchant)
+  final String userId;
   const MerchantShop({super.key, required this.userId});
 
   @override
@@ -10,214 +11,387 @@ class MerchantShop extends StatefulWidget {
 }
 
 class _MerchantShopState extends State<MerchantShop> {
-  // สินค้า/โปรโมชั่น ของร้าน (Mockup) - ในการใช้งานจริงสามารถดึงจาก DB ได้
-  final List<Map<String, dynamic>> products = [
-    {'name': 'ส่วนลด 20 บาท', 'cost': 100, 'icon': Icons.local_offer},
-    {'name': 'ฟรี Topping', 'cost': 50, 'icon': Icons.icecream},
-    {'name': 'แลกเครื่องดื่มฟรี', 'cost': 250, 'icon': Icons.local_drink},
-    {'name': 'ถุงผ้าลดโลกร้อน', 'cost': 500, 'icon': Icons.shopping_bag},
+
+  final List<Map<String, dynamic>> _iconOptions = [
+    {'icon': Icons.local_offer, 'name': 'ส่วนลด'},
+    {'icon': Icons.coffee, 'name': 'เครื่องดื่ม'},
+    {'icon': Icons.restaurant, 'name': 'อาหาร'},
+    {'icon': Icons.shopping_bag, 'name': 'สินค้า'},
+    {'icon': Icons.icecream, 'name': 'ขนม'},
   ];
 
-  // ฟังก์ชันตัดแต้ม (Transaction)
-  Future<void> _processRedemption(String customerUsername, String itemName, int cost) async {
-    if (customerUsername.isEmpty) return;
+  @override
+  void initState() {
+    super.initState();
+    _listenForNewOrders();
+  }
 
+  //////////////////////////////////////////////////////
+  /// REALTIME LISTENER
+  //////////////////////////////////////////////////////
+
+  void _listenForNewOrders() {
+    FirebaseFirestore.instance
+        .collection('transactions')
+        .where('merchantId', isEqualTo: widget.userId)
+        .snapshots()
+        .listen((snapshot) {
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          var data = change.doc.data() as Map<String, dynamic>;
+          if (data['type'] != null &&
+              data['type'].toString().contains('Redeem')) {
+            _showNotification(data);
+          }
+        }
+      }
+    });
+  }
+
+  void _showNotification(Map<String, dynamic> data) {
+    if (!mounted) return;
+
+    String item =
+    (data['type'] ?? '').replaceAll('Redeem: ', '');
+    int amount = data['amount'] ?? 0;
+    String customer =
+        data['customerName'] ?? 'ลูกค้า';
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: Colors.orange.shade50,
+        title: const Text("มีรายการแลกใหม่!"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(customer,
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue)),
+            const SizedBox(height: 10),
+            Text(item,
+                style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepOrange)),
+            Text("+$amount Tokens",
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green)),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepOrange),
+            child: const Text("รับทราบ"),
+          )
+        ],
+      ),
+    );
+  }
+
+  //////////////////////////////////////////////////////
+  /// CASH OUT
+  //////////////////////////////////////////////////////
+
+  void _transferToStaff() {
+    final usernameController = TextEditingController();
+    final amountController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("แลกเงินสด (Cash Out)"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: usernameController,
+              decoration: const InputDecoration(
+                  labelText: "Username เจ้าหน้าที่"),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: "จำนวน Tokens"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("ยกเลิก")),
+          ElevatedButton(
+            onPressed: () {
+              String staffUsername =
+              usernameController.text.trim();
+              int amount =
+                  int.tryParse(amountController.text) ?? 0;
+
+              Navigator.pop(context);
+
+              if (staffUsername.isNotEmpty &&
+                  amount > 0) {
+                _processCashOut(staffUsername, amount);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green),
+            child: const Text("ยืนยัน"),
+          )
+        ],
+      ),
+    );
+  }
+
+  Future<void> _processCashOut(
+      String staffUsername, int amount) async {
     final db = FirebaseFirestore.instance;
-    final merchantRef = db.collection('users').doc(widget.userId);
+    final merchantRef =
+    db.collection('users').doc(widget.userId);
 
     try {
-      showDialog(context: context, barrierDismissible: false, builder: (c) => const Center(child: CircularProgressIndicator()));
+      showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) =>
+          const Center(child: CircularProgressIndicator()));
 
-      // 1. ค้นหาลูกค้าจาก Username
-      final customerQuery = await db.collection('users')
-          .where('username', isEqualTo: customerUsername)
+      final staffQuery = await db
+          .collection('users')
+          .where('username', isEqualTo: staffUsername)
           .limit(1)
           .get();
 
-      if (customerQuery.docs.isEmpty) {
-        throw Exception("ไม่พบลูกค้าชื่อ '$customerUsername'");
+      if (staffQuery.docs.isEmpty) {
+        throw Exception("ไม่พบเจ้าหน้าที่");
       }
 
-      final customerDoc = customerQuery.docs.first;
-      final customerRef = customerDoc.reference;
+      final staffDoc = staffQuery.docs.first;
+      final staffRef = staffDoc.reference;
 
-      // 2. เริ่ม Transaction (เพื่อความปลอดภัยข้อมูล)
       await db.runTransaction((transaction) async {
-        DocumentSnapshot customerSnapshot = await transaction.get(customerRef);
-        int currentPoints = customerSnapshot.get('ocean_tokens') ?? 0;
+        final merchantSnap =
+        await transaction.get(merchantRef);
+        final staffSnap =
+        await transaction.get(staffRef);
 
-        // เช็คว่าแต้มพอไหม?
-        if (currentPoints < cost) {
-          throw Exception("ลูกค้ามีแต้มไม่พอ! (มีอยู่ $currentPoints Tokens)");
+        int merchantTokens =
+            merchantSnap.data()?['ocean_tokens'] ?? 0;
+        int staffBudget =
+            staffSnap.data()?['budget'] ?? 0;
+        int staffCollected =
+            staffSnap.data()?['collected_tokens'] ?? 0;
+
+        if (merchantTokens < amount) {
+          throw Exception("แต้มไม่พอ");
         }
 
-        // ตัดแต้มลูกค้า
-        transaction.update(customerRef, {'ocean_tokens': currentPoints - cost});
+        transaction.update(merchantRef, {
+          'ocean_tokens': merchantTokens - amount
+        });
 
-        // เพิ่มแต้ม/สถิติให้ร้านค้า (Optional: ร้านค้าอาจจะได้ Credit หรือแค่บันทึกยอด)
-        // transaction.update(merchantRef, {'total_redeemed': FieldValue.increment(cost)});
+        transaction.update(staffRef, {
+          'budget': staffBudget - amount,
+          'collected_tokens':
+          staffCollected + amount
+        });
 
-        // บันทึกประวัติ Transaction
-        transaction.set(db.collection('transactions').doc(), {
-          'userId': customerDoc.id,       // ลูกค้าคนไหน
-          'merchantId': widget.userId,    // ร้านไหน
-          'type': 'Redeem: $itemName',    // แลกอะไร
-          'amount': cost,                 // กี่แต้ม
-          'is_income': false,             // เป็นรายจ่ายของลูกค้า
-          'timestamp': FieldValue.serverTimestamp(),
+        transaction.set(
+            db.collection('transactions').doc(), {
+          'merchantId': widget.userId,
+          'staffId': staffDoc.id,
+          'type': 'Cash Out',
+          'amount': amount,
+          'timestamp':
+          FieldValue.serverTimestamp(),
         });
       });
 
       if (mounted) {
-        Navigator.pop(context); // ปิด Loading
-        Navigator.pop(context); // ปิด Dialog กรอกชื่อ
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("ตัดแต้มคุณ $customerUsername สำเร็จ! (-$cost)"),
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(
+          content:
+          Text("โอน $amount Tokens สำเร็จ"),
           backgroundColor: Colors.green,
         ));
       }
-
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // ปิด Loading
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("เกิดข้อผิดพลาด: ${e.toString().replaceAll('Exception:', '')}"),
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(
+          content: Text(e.toString()),
           backgroundColor: Colors.red,
         ));
       }
     }
   }
 
-  // Dialog ให้ร้านค้ากรอกชื่อลูกค้า
-  void _showRedeemDialog(String itemName, int cost) {
-    final usernameController = TextEditingController();
+  //////////////////////////////////////////////////////
+  /// PRODUCT CRUD
+  //////////////////////////////////////////////////////
+
+  void _showProductDialog({DocumentSnapshot? product}) {
+    final nameController = TextEditingController();
+    final costController = TextEditingController();
+    int selectedIconIndex = 0;
+
+    if (product != null) {
+      var data =
+      product.data() as Map<String, dynamic>;
+      nameController.text = data['name'];
+      costController.text =
+          data['cost'].toString();
+    }
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Column(
+      builder: (_) => AlertDialog(
+        title: Text(
+            product == null
+                ? "เพิ่มสินค้า"
+                : "แก้ไขสินค้า"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.qr_code_scanner, size: 50, color: Colors.orange),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                  labelText: "ชื่อสินค้า"),
+            ),
             const SizedBox(height: 10),
-            Text("แลกสิทธิ์: $itemName"),
-            Text("ใช้ $cost Tokens", style: const TextStyle(fontSize: 14, color: Colors.grey)),
+            TextField(
+              controller: costController,
+              keyboardType:
+              TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: "ราคา"),
+            ),
           ],
         ),
-        content: TextField(
-          controller: usernameController,
-          decoration: const InputDecoration(
-            labelText: "ระบุ Username ลูกค้า",
-            hintText: "เช่น user1",
-            border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.person),
-          ),
-        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("ยกเลิก")),
+          TextButton(
+              onPressed: () =>
+                  Navigator.pop(context),
+              child: const Text("ยกเลิก")),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-            onPressed: () => _processRedemption(usernameController.text, itemName, cost),
-            child: const Text("ยืนยันตัดแต้ม"),
-          ),
+            onPressed: () async {
+              if (nameController.text.isEmpty ||
+                  costController.text.isEmpty)
+                return;
+
+              int cost =
+              int.parse(costController.text);
+
+              if (product == null) {
+                await FirebaseFirestore.instance
+                    .collection('shop_items')
+                    .add({
+                  'shopId': widget.userId,
+                  'name': nameController.text,
+                  'cost': cost,
+                  'created_at':
+                  FieldValue.serverTimestamp()
+                });
+              } else {
+                await FirebaseFirestore.instance
+                    .collection('shop_items')
+                    .doc(product.id)
+                    .update({
+                  'name': nameController.text,
+                  'cost': cost
+                });
+              }
+
+              if (mounted)
+                Navigator.pop(context);
+            },
+            child: const Text("บันทึก"),
+          )
         ],
       ),
     );
   }
 
+  void _deleteProduct(String id) {
+    FirebaseFirestore.instance
+        .collection('shop_items')
+        .doc(id)
+        .delete();
+  }
+
+  //////////////////////////////////////////////////////
+  /// UI
+  //////////////////////////////////////////////////////
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Merchant POS System"), backgroundColor: Colors.orange, foregroundColor: Colors.white),
-      body: Column(
-        children: [
-          // Header ร้านค้า
-          Container(
-            padding: const EdgeInsets.all(20),
-            width: double.infinity,
-            color: Colors.orange.shade50,
-            child: Column(
-              children: [
-                StreamBuilder<DocumentSnapshot>(
-                  stream: FirebaseFirestore.instance.collection('users').doc(widget.userId).snapshots(),
-                  builder: (context, snapshot) {
-                    var data = snapshot.data?.data() as Map<String, dynamic>?;
-                    return Text("ร้าน: ${data?['name'] ?? 'Shop'}",
-                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.deepOrange));
-                  },
-                ),
-                const Text("เลือกรายการด้านล่างเพื่อตัดแต้มลูกค้า"),
-              ],
-            ),
-          ),
-
-          // Grid รายการสินค้า
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 1.1,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: products.length,
-              itemBuilder: (context, index) {
-                final item = products[index];
-                return InkWell(
-                  onTap: () => _showRedeemDialog(item['name'], item['cost']),
-                  child: Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(item['icon'], size: 40, color: Colors.orange),
-                        const SizedBox(height: 10),
-                        Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        Text("${item['cost']} Tokens", style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // ประวัติการแลกล่าสุดของร้านนี้ (Real-time)
-          const Divider(),
-          const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: Text("ประวัติการแลกวันนี้ (Today's Redemption)", style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          SizedBox(
-            height: 200,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('transactions')
-                  .where('merchantId', isEqualTo: widget.userId) // ดึงเฉพาะของร้านนี้
-                  .orderBy('timestamp', descending: true)
-                  .limit(10)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                if (snapshot.data!.docs.isEmpty) return const Center(child: Text("ยังไม่มีลูกค้ามาแลก"));
-
-                return ListView.builder(
-                  itemCount: snapshot.data!.docs.length,
-                  itemBuilder: (context, index) {
-                    var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
-                    return ListTile(
-                      leading: const Icon(Icons.history, color: Colors.grey),
-                      title: Text(data['type']), // เช่น Redeem: ส่วนลด 20 บาท
-                      subtitle: Text("ตัดแต้มลูกค้าสำเร็จ"),
-                      trailing: Text("-${data['amount']}", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                    );
-                  },
-                );
-              },
-            ),
+      appBar: AppBar(
+        title: const Text("จัดการร้านค้า"),
+        backgroundColor: Colors.orange,
+        actions: [
+          IconButton(
+            onPressed: _transferToStaff,
+            icon:
+            const Icon(Icons.currency_exchange),
           )
         ],
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('shop_items')
+            .where('shopId',
+            isEqualTo: widget.userId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(
+                child:
+                CircularProgressIndicator());
+          }
+
+          return ListView.builder(
+            itemCount:
+            snapshot.data!.docs.length,
+            itemBuilder: (context, index) {
+              var doc =
+              snapshot.data!.docs[index];
+              var data = doc.data()
+              as Map<String, dynamic>;
+
+              return ListTile(
+                title: Text(data['name']),
+                subtitle: Text(
+                    "${NumberFormat('#,##0').format(data['cost'])} Tokens"),
+                trailing: IconButton(
+                  icon: const Icon(
+                      Icons.delete,
+                      color: Colors.red),
+                  onPressed: () =>
+                      _deleteProduct(doc.id),
+                ),
+                onTap: () =>
+                    _showProductDialog(
+                        product: doc),
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton:
+      FloatingActionButton(
+        backgroundColor: Colors.orange,
+        onPressed: () =>
+            _showProductDialog(),
+        child: const Icon(Icons.add),
       ),
     );
   }
