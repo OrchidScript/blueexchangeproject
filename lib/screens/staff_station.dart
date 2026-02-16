@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'login_screen.dart'; // ใช้สำหรับปุ่ม Logout
+import 'login_screen.dart'; // ตรวจสอบว่ามีไฟล์นี้
 
 class StaffStation extends StatefulWidget {
   final String userId; // Staff ID
@@ -16,7 +16,7 @@ class _StaffStationState extends State<StaffStation>
   late TabController _tabController;
   bool _isLoading = false;
 
-  // Tab 1: Buy Waste
+  // Tab 1: Buy Waste (รับซื้อขยะ)
   final _usernameController = TextEditingController();
   final _weightController = TextEditingController();
   String _selectedType = 'Plastic';
@@ -28,10 +28,11 @@ class _StaffStationState extends State<StaffStation>
     'Aluminum': 25,
   };
 
-  // Tab 2: Cash Out
+  // Tab 2: Cash Out (แลกเงินร้านค้า)
   final _merchantSearchController = TextEditingController();
   final _cashOutPointsController = TextEditingController();
 
+  // ตัวแปรเก็บข้อมูลร้านค้าที่ค้นหาเจอ
   Map<String, dynamic>? _foundMerchantData;
   String? _foundMerchantId;
 
@@ -60,6 +61,7 @@ class _StaffStationState extends State<StaffStation>
     });
   }
 
+  // ฟังก์ชันค้นหาร้านค้า
   Future<void> _searchMerchant() async {
     String username = _merchantSearchController.text.trim();
     if (username.isEmpty) return;
@@ -96,6 +98,7 @@ class _StaffStationState extends State<StaffStation>
     }
   }
 
+  // ฟังก์ชันรับซื้อขยะ (Tab 1)
   Future<void> _buyWaste() async {
     if (_calculatedTokens <= 0 || _usernameController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("กรุณากรอกข้อมูลให้ครบ")));
@@ -142,6 +145,7 @@ class _StaffStationState extends State<StaffStation>
     }
   }
 
+  // ฟังก์ชันแลกเงินร้านค้า (Tab 2) - แก้ไขจุด Error แล้ว ✅
   Future<void> _merchantCashOut() async {
     if (_foundMerchantData == null || _foundMerchantId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("กรุณาค้นหาร้านค้าก่อน")));
@@ -188,12 +192,18 @@ class _StaffStationState extends State<StaffStation>
       });
 
       if (mounted) {
-        showDialog(context: context, builder: (_) => AlertDialog(
-          title: const Text("✅ จ่ายเงินสดสำเร็จ"),
-          // แก้ไขตรงนี้: ใช้ตัวแปร points แทน cashToPay ที่มองไม่เห็น
-          content: Text("จ่ายเงิน $points บาท\nให้ร้าน ${_foundMerchantData!['shop_name']}"),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("ปิด"))],
-        ));
+        // --- 🔴 แก้ไข: ดึงชื่อร้านมาเก็บไว้ก่อนล้างค่า ---
+        String shopName = _foundMerchantData?['shop_name'] ?? 'ร้านค้า';
+
+        showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text("✅ จ่ายเงินสดสำเร็จ"),
+              content: Text("จ่ายเงิน $points บาท\nให้ร้าน $shopName"), // ใช้ตัวแปร local
+              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("ปิด"))],
+            )
+        );
+
         _cashOutPointsController.clear();
         _merchantSearchController.clear();
         setState(() {
@@ -207,6 +217,8 @@ class _StaffStationState extends State<StaffStation>
       setState(() => _isLoading = false);
     }
   }
+
+  // --- UI ---
 
   @override
   Widget build(BuildContext context) {
