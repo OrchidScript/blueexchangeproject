@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'register_screen.dart'; // อย่าลืม import ไฟล์สมัครสมาชิก
+import 'register_screen.dart';
 import 'user_dashboard.dart';
 import 'staff_station.dart';
 import 'merchant_shop.dart';
@@ -18,7 +18,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool isLoading = false;
 
   Future<void> _login() async {
+    // 1. เช็คก่อนว่ากรอกข้อมูลครบไหม
+    if (_usernameController.text.isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("กรุณากรอก Username และ Password")),
+      );
+      return;
+    }
+
     setState(() => isLoading = true);
+
     try {
       // ค้นหา User จาก Username
       final query = await FirebaseFirestore.instance
@@ -34,34 +43,40 @@ class _LoginScreenState extends State<LoginScreen> {
 
       var userDoc = query.docs.first;
       String role = userDoc['role'];
-      String userId = userDoc.id; // ใช้ Document ID เป็น User ID จริงๆ
+      String userId = userDoc.id; // ใช้ Document ID เป็น User ID
 
       if (!mounted) return;
 
-      // แยกทางตาม Role
+      // 2. ใช้ pushReplacement เพื่อไม่ให้กด Back แล้วกลับมาหน้า Login
       if (role == 'user') {
-        Navigator.push(
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => UserDashboard(userId: userId)),
         );
       } else if (role == 'staff') {
-        // Pass userId to StaffStation
-        Navigator.push(
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => StaffStation(userId: userId)),
         );
       } else if (role == 'merchant') {
-        Navigator.push(
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => MerchantShop(userId: userId)),
         );
       } else {
-        throw Exception("Role ไม่ถูกต้อง");
+        throw Exception("Role ไม่ถูกต้อง (กรุณาติดต่อผู้ดูแลระบบ)");
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
+      // 3. ตัดคำว่า Exception ออกให้ดูสวยงาม
+      String errorMessage = e.toString().replaceAll('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -73,6 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(30),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Icon(
                 Icons.recycling_rounded,
@@ -108,17 +124,29 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              isLoading
-                  ? const CircularProgressIndicator()
-                  : ElevatedButton(
-                      onPressed: _login,
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 50),
-                        backgroundColor: const Color(0xFF0077B6),
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text("เข้าสู่ระบบ"),
+
+              // ปุ่ม Login
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: isLoading ? null : _login,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0077B6),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                  ),
+                  child: isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("เข้าสู่ระบบ", style: TextStyle(fontSize: 18)),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // ปุ่มสมัครสมาชิก
               TextButton(
                 onPressed: () => Navigator.push(
                   context,

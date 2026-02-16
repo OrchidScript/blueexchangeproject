@@ -11,12 +11,13 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  // ตัวควบคุม TextField
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
-  final _shopNameController = TextEditingController();
+  final _shopNameController = TextEditingController(); // เฉพาะร้านค้า
 
-  String _selectedRole = 'user';
+  String _selectedRole = 'user'; // ค่าเริ่มต้นเป็น User
   bool _isLoading = false;
 
   Future<void> _register() async {
@@ -25,7 +26,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // เช็ค username ซ้ำ
+      // 1. เช็คว่า Username ซ้ำไหม
       final check = await FirebaseFirestore.instance
           .collection('users')
           .where('username', isEqualTo: _usernameController.text.trim())
@@ -34,54 +35,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (check.docs.isNotEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Username นี้มีคนใช้แล้ว")),
+            const SnackBar(content: Text("Username นี้มีคนใช้แล้ว กรุณาเปลี่ยนใหม่")),
           );
         }
         setState(() => _isLoading = false);
         return;
       }
 
-      // เตรียมข้อมูล
+      // 2. เตรียมข้อมูลพื้นฐาน (Common Data)
       Map<String, dynamic> userData = {
         'username': _usernameController.text.trim(),
         'password': _passwordController.text.trim(),
         'name': _nameController.text.trim(),
         'role': _selectedRole,
-        'ocean_tokens': 0,
         'created_at': FieldValue.serverTimestamp(),
       };
 
-      // ถ้าเป็นร้านค้า
+      // 3. กำหนดค่าเริ่มต้นตามบทบาท (Logic ที่คุณขอมา)
+      if (_selectedRole == 'staff') {
+        // --- กรณีเป็นเจ้าหน้าที่ (Staff) ---
+        userData['budget'] = 10000;          // เงินตั้งต้น 10,000 บาท
+        userData['collected_tokens'] = 0;    // แต้มที่รับซื้อมาเริ่มที่ 0
+        userData['ocean_tokens'] = 0;        // กันเหนียวไว้เผื่อ UI เรียกใช้
+      } else {
+        // --- กรณีเป็นลูกค้า (User) หรือ ร้านค้า (Merchant) ---
+        userData['ocean_tokens'] = 0;        // แต้มเริ่มที่ 0
+      }
+
+      // 4. กรณีร้านค้า ต้องมีชื่อร้าน
       if (_selectedRole == 'merchant') {
         userData['shop_name'] = _shopNameController.text.isNotEmpty
             ? _shopNameController.text.trim()
-            : _nameController.text.trim();
+            : _nameController.text.trim(); // ถ้าไม่กรอกชื่อร้าน ให้ใช้ชื่อคนแทน
       }
 
-      // ถ้าเป็น Staff
-      if (_selectedRole == 'staff') {
-        userData['budget'] = 10000;
-        userData['collected_tokens'] = 0;
-      }
-
+      // 5. บันทึกลง Firebase
       await FirebaseFirestore.instance.collection('users').add(userData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("สมัครสมาชิกสำเร็จ!")),
+          const SnackBar(content: Text("✅ สมัครสมาชิกสำเร็จ!")),
         );
-        Navigator.pop(context);
+        Navigator.pop(context); // กลับไปหน้า Login
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e")),
+          SnackBar(content: Text("เกิดข้อผิดพลาด: $e")),
         );
       }
-    }
-
-    if (mounted) {
-      setState(() => _isLoading = false);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -97,22 +101,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("สมัครสมาชิกใหม่")),
+      appBar: AppBar(
+        title: const Text("สมัครสมาชิกใหม่"),
+        backgroundColor: const Color(0xFF0077B6),
+        foregroundColor: Colors.white,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
           child: ListView(
             children: [
+              const Icon(Icons.person_add, size: 80, color: Color(0xFF0077B6)),
+              const SizedBox(height: 20),
+
               // Username
               TextFormField(
                 controller: _usernameController,
                 decoration: const InputDecoration(
-                  labelText: "Username",
+                  labelText: "Username (สำหรับเข้าระบบ)",
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
                 ),
-                validator: (v) =>
-                v == null || v.isEmpty ? "กรุณากรอก Username" : null,
+                validator: (v) => v == null || v.isEmpty ? "กรุณากรอก Username" : null,
               ),
               const SizedBox(height: 15),
 
@@ -123,9 +134,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: "Password",
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
                 ),
-                validator: (v) =>
-                v == null || v.isEmpty ? "กรุณากรอก Password" : null,
+                validator: (v) => v == null || v.isEmpty ? "กรุณากรอก Password" : null,
               ),
               const SizedBox(height: 15),
 
@@ -135,32 +146,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: "ชื่อ-นามสกุล (Display Name)",
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.badge),
                 ),
-                validator: (v) =>
-                v == null || v.isEmpty ? "กรุณากรอกชื่อ" : null,
+                validator: (v) => v == null || v.isEmpty ? "กรุณากรอกชื่อ" : null,
               ),
               const SizedBox(height: 15),
 
-              // Role
+              // Role Dropdown
               DropdownButtonFormField<String>(
                 value: _selectedRole,
                 decoration: const InputDecoration(
                   labelText: "เลือกบทบาท",
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.work),
                 ),
                 items: const [
-                  DropdownMenuItem(
-                    value: 'user',
-                    child: Text("ผู้ใช้งานทั่วไป (User)"),
-                  ),
-                  DropdownMenuItem(
-                    value: 'staff',
-                    child: Text("เจ้าหน้าที่ (Staff)"),
-                  ),
-                  DropdownMenuItem(
-                    value: 'merchant',
-                    child: Text("ร้านค้า (Merchant)"),
-                  ),
+                  DropdownMenuItem(value: 'user', child: Text("ผู้ใช้งานทั่วไป (User)")),
+                  DropdownMenuItem(value: 'staff', child: Text("เจ้าหน้าที่ (Staff)")),
+                  DropdownMenuItem(value: 'merchant', child: Text("ร้านค้า (Merchant)")),
                 ],
                 onChanged: (v) {
                   setState(() {
@@ -169,7 +172,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 },
               ),
 
-              // ถ้าเป็นร้านค้า ให้กรอกชื่อร้าน
+              // ถ้าเลือกเป็นร้านค้า ให้แสดงช่องกรอกชื่อร้านเพิ่ม
               if (_selectedRole == 'merchant') ...[
                 const SizedBox(height: 15),
                 TextFormField(
@@ -179,20 +182,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.store),
                   ),
+                  validator: (v) => v == null || v.isEmpty ? "กรุณากรอกชื่อร้านค้า" : null,
                 ),
               ],
 
               const SizedBox(height: 30),
 
-              // ปุ่มสมัคร
+              // ปุ่มสมัครสมาชิก
               ElevatedButton(
                 onPressed: _isLoading ? null : _register,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 50),
+                  backgroundColor: const Color(0xFF0077B6),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("ลงทะเบียน (Register)"),
+                    : const Text("ลงทะเบียน (Register)", style: TextStyle(fontSize: 18)),
               ),
             ],
           ),
